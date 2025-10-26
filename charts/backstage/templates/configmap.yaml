@@ -7,5 +7,5 @@ metadata:
 data:
   {{- if .Values.configMaps.appConfig.enabled }}
   app-config.yaml: |
-{{ .Values.configMaps.appConfig.data | indent 4 }}
+{{ .Values.configMaps.appConfig.data | toString | indent 4 }}
   {{- end }}
