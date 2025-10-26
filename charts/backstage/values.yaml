@@ -5,7 +5,7 @@
 replicaCount: 1
 
 image:
-  repository: your-dockerhub-username/backstage-gitops
+  repository: jaimehenao8126/backstage-gitops
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
