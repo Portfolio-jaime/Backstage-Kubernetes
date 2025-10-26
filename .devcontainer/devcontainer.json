@@ -1,0 +1,61 @@
+{
+  "name": "Backstage GitOps Development",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "extensions": [
+    "ms-vscode.vscode-json",
+    "ms-vscode.vscode-yaml",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "ms-vscode.vscode-docker",
+    "ms-vscode.vscode-typescript-next",
+    "esbenp.prettier-vscode",
+    "ms-vscode.vscode-eslint",
+    "redhat.vscode-yaml",
+    "ms-vscode.vscode-helm"
+  ],
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash",
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[javascript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[yaml]": {
+      "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "yaml.schemas": {
+      "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.24.3-standalone-strict/all.json": "/*.yaml"
+    }
+  },
+  "forwardPorts": [3000, 7007, 8000, 4001],
+  "portsAttributes": {
+    "3000": {
+      "label": "Backstage Frontend (Dev)",
+      "onAutoForward": "notify"
+    },
+    "7007": {
+      "label": "Backstage Backend (Dev)",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Backstage Frontend (Prod)",
+      "onAutoForward": "silent"
+    },
+    "4001": {
+      "label": "Backstage Backend (Prod)",
+      "onAutoForward": "silent"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=${localWorkspaceFolder}/.git,target=/workspaces/backstage-gitops/.git,type=bind,consistency=cached"
+  ],
+  "workspaceFolder": "/workspaces/backstage-gitops"
+}

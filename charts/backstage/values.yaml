@@ -1,0 +1,149 @@
+# Default values for backstage.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: your-dockerhub-username/backstage-gitops
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets:
+  - name: dockerhub-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  ports:
+    - name: backend
+      port: 4001
+      targetPort: 4001
+      protocol: TCP
+    - name: frontend
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: backstage.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: backstage-tls
+  #    hosts:
+  #      - backstage.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Environment variables
+env:
+  - name: BACKSTAGE_BASE_URL
+    value: "http://localhost:8000"
+  - name: BACKSTAGE_BACKEND_URL
+    value: "http://localhost:4001"
+  - name: GITHUB_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: backstage-secrets
+        key: github-token
+  - name: DOCKERHUB_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: backstage-secrets
+        key: dockerhub-username
+  - name: DOCKERHUB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: backstage-secrets
+        key: dockerhub-password
+
+# ConfigMaps for configuration files
+configMaps:
+  appConfig:
+    enabled: true
+    data:
+      app-config.yaml: |
+        app:
+          title: Backstage GitOps
+          baseUrl: http://localhost:8000
+        organization:
+          name: Backstage Solutions
+        backend:
+          baseUrl: http://localhost:4001
+          listen:
+            port: 4001
+          database:
+            client: better-sqlite3
+            connection: ':memory:'
+        integrations:
+          github:
+            - host: github.com
+              token: ${GITHUB_TOKEN}
+        auth:
+          providers:
+            guest: {}
+        catalog:
+          import:
+            entityFilename: catalog-info.yaml
+            pullRequestBranchName: backstage-integration
+          rules:
+            - allow: [Component, System, API, Resource, Location]
+        permission:
+          enabled: true

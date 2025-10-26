@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backstage.fullname" . }}-config
+  labels:
+    {{- include "backstage.labels" . | nindent 4 }}
+data:
+  {{- if .Values.configMaps.appConfig.enabled }}
+  app-config.yaml: |
+{{ .Values.configMaps.appConfig.data | indent 4 }}
+  {{- end }}
