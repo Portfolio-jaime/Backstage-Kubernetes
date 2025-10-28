@@ -231,4 +231,4 @@ kubectl get events -n backstage-system --sort-by=.metadata.creationTimestamp
 
 ## Licencia
 
-Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.# Workflow trigger test
