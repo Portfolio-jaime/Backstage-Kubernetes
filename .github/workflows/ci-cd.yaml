@@ -29,10 +29,14 @@ jobs:
           node-version: '18'
 
       - name: Install dependencies
-        run: cd backstage && yarn install --frozen-lockfile
+        run: |
+          cd backstage
+          yarn install --frozen-lockfile
 
       - name: Build Backstage
-        run: cd backstage && yarn build:all
+        run: |
+          cd backstage
+          yarn build:all
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
