@@ -129,6 +129,9 @@ check_cluster() {
         return 1
     fi
 
+    # Verify kubectl version (without --short flag for compatibility)
+    kubectl version --client >/dev/null 2>&1 || print_warning "Could not verify kubectl version"
+
     print_success "Cluster is available and accessible"
 }
 
@@ -139,13 +142,26 @@ install_argocd() {
     # Create namespace if it doesn't exist
     kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
-    # Apply ArgoCD manifests
-    if kubectl apply -f infra/argocd/install.yaml; then
-        print_success "ArgoCD manifests applied"
-    else
-        print_error "Failed to apply ArgoCD manifests"
-        return 1
-    fi
+    # Apply ArgoCD manifests from official repository with retry logic
+    local retry_count=0
+    local max_retries=3
+    local success=false
+
+    while [ $retry_count -lt $max_retries ] && [ "$success" = false ]; do
+        if kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml; then
+            print_success "ArgoCD manifests applied"
+            success=true
+        else
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                print_warning "Failed to apply ArgoCD manifests, retrying in 10 seconds... ($retry_count/$max_retries)"
+                sleep 10
+            else
+                print_error "Failed to apply ArgoCD manifests after $max_retries attempts"
+                return 1
+            fi
+        fi
+    done
 
     # Wait for ArgoCD to be ready
     if wait_for_pods "argocd" "app.kubernetes.io/name=argocd-server"; then

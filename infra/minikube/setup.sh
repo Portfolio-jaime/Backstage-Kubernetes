@@ -193,7 +193,7 @@ show_access_info() {
     echo
     print_status "Cluster Information:"
     echo "  - Cluster name: backstage-gitops"
-    echo "  - Kubernetes version: $(kubectl version --short | grep Server | cut -d' ' -f3)"
+    echo "  - Kubernetes version: $(kubectl version --client | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+')"
     echo "  - Driver: docker"
     echo
     print_status "Port mappings:"

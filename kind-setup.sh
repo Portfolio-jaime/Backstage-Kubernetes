@@ -151,7 +151,7 @@ check_kubectl() {
     fi
 
     # Verify kubectl version
-    kubectl version --client --short
+    kubectl version --client
 }
 
 # Function to create kind cluster
