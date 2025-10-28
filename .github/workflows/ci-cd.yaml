@@ -34,7 +34,7 @@ jobs:
       with:
         node-version: '18'
         cache: 'yarn'
-        cache-dependency-path: backstage
+        cache-dependency-path: backstage/yarn.lock
 
     - name: Install dependencies
       working-directory: ./backstage
