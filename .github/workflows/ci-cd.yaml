@@ -6,11 +6,9 @@ on:
       - main
     paths:
       - 'backstage/**'
-      - 'helm/**'
-      - 'argocd/**'
-      - 'Makefile'
       - 'charts/**'
       - '.github/workflows/ci-cd.yaml'
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -25,14 +23,32 @@ jobs:
         id: set_tag
         run: |
           echo "image-tag=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
-      - name: Build Docker image
-        run: |
-          docker build -t ${{ secrets.DOCKER_IMAGE }}:${{ steps.set_tag.outputs.image-tag }} .
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: cd backstage && yarn install --frozen-lockfile
+
+      - name: Build Backstage
+        run: cd backstage && yarn build:all
+
       - name: Login to DockerHub
-        run: echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-      - name: Push Docker image
-        run: |
-          docker push ${{ secrets.DOCKER_IMAGE }}:${{ steps.set_tag.outputs.image-tag }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backstage
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.set_tag.outputs.image-tag }}
+            ${{ env.IMAGE_NAME }}:latest
+          platforms: linux/amd64,linux/arm64
 
   deploy-to-kind:
     name: Deploy to Kind Cluster (via ArgoCD)
@@ -99,178 +115,44 @@ jobs:
           kubectl get deployment backstage -n backstage -o=jsonpath='{.spec.template.spec.containers[0].image}'
           echo "Expected image: $DOCKER_IMAGE:${{ needs.build-and-push.outputs.image-tag }}"
 
-      # Security scanning
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        continue-on-error: true
-        with:
-          scan-type: 'fs'
-          scan-ref: './backstage-kind'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
 
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-          category: 'filesystem'
-        continue-on-error: true  # Don't fail if SARIF upload fails
-
-      # Docker Build and Push
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set image tag
-        id: vars
-        run: |
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-          else
-            # For PRs, use a clean tag format
-            if [ "${{ github.event_name }}" == "pull_request" ]; then
-              echo "tag=pr-${{ github.event.pull_request.number }}-${{ github.sha }}" >> $GITHUB_OUTPUT
-            else
-              echo "tag=${{ github.ref_name }}-${{ github.sha }}" >> $GITHUB_OUTPUT
-            fi
-          fi
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backstage-kind
-          file: ./backstage-kind/Dockerfile.kind
-          push: true
-          tags: |
-            ${{ env.DOCKER_IMAGE }}:${{ steps.vars.outputs.tag }}
-            ${{ env.DOCKER_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
-
-      - name: Scan Docker image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
-        continue-on-error: true
-        with:
-          scan-type: 'image'
-          scan-ref: '${{ env.DOCKER_IMAGE }}:${{ steps.vars.outputs.tag }}'
-          format: 'sarif'
-          output: 'trivy-image-results.sarif'
-          exit-code: 0  # Don't fail the build on vulnerabilities
-
-      - name: Upload Docker scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-image-results.sarif'
-          category: 'container'
-        continue-on-error: true  # Don't fail if SARIF upload fails
-
-      - name: Image info
-        run: |
-          echo "✅ Image pushed and scanned successfully!"
-          echo "📦 Image: ${{ env.DOCKER_IMAGE }}:${{ steps.vars.outputs.tag }}"
-          echo "📦 Latest: ${{ env.DOCKER_IMAGE }}:latest"
-
-  deploy-to-kind:
-      - name: Print ARGOCD_SERVER value
-        run: echo "ARGOCD_SERVER='$ARGOCD_SERVER'"
-    name: Deploy to Kind Cluster (via ArgoCD)
+  update-helm-chart:
+    name: Update Helm Chart and Deploy
     needs: build-and-push
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-  env:
-    ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-    ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
-    ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
-  steps:
-    - name: Print ARGOCD_SERVER value
-      run: echo "ARGOCD_SERVER='$ARGOCD_SERVER'"
-      - name: Checkout code
-        uses: actions/checkout@v4
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
-      - name: Set up yq
-        uses: mikefarah/yq@v4.30.6 # Use a specific version of yq
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure Git
         run: |
           git config user.name "GitHub Actions"
           git config user.email "github-actions@github.com"
 
-      - name: Update ArgoCD Application manifest with new image tag
+      - name: Update Helm chart image tag
         run: |
           IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
-          ARGO_APP_FILE="argocd/apps/backstage-application.yaml"
+          echo "🔄 Updating Helm chart with image tag: $IMAGE_TAG"
+          sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/" charts/backstage/values.yaml
+          sed -i "s/repository: .*/repository: ${{ env.IMAGE_NAME }}/" charts/backstage/values.yaml
+          echo "✅ Updated charts/backstage/values.yaml"
 
-          echo "🔄 Updating ArgoCD application with image tag: $IMAGE_TAG"
-
-          # Update the image.tag parameter in Helm values
-          yq e '.spec.source.helm.parameters[] |= select(.name == "image.tag").value = "'"$IMAGE_TAG"'"' -i "$ARGO_APP_FILE"
-
-          # Force ArgoCD sync by updating a dummy annotation
-          yq e '.metadata.annotations["backstage.io/last-deployed"] = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' -i "$ARGO_APP_FILE"
-
-          echo "✅ Updated $ARGO_APP_FILE with image.tag=$IMAGE_TAG"
-          echo "📝 Changes made:"
-          git diff argocd/apps/backstage-application.yaml || echo "No changes detected"
-
-          # Commit and push changes to trigger ArgoCD sync
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git add argocd/apps/backstage-application.yaml
-          git commit -m "chore(argocd): Update Backstage image tag to ${{ needs.build-and-push.outputs.image-tag }}" || echo "No changes to commit"
-
+      - name: Commit and push changes
+        run: |
+          git add charts/backstage/values.yaml
+          git commit -m "chore: Update Backstage image tag to ${{ needs.build-and-push.outputs.image-tag }}" || echo "No changes to commit"
           echo "🚀 Pushing changes to trigger ArgoCD sync..."
-
-          # Push with retry logic
-          for i in {1..3}; do
-            if git push origin HEAD:${{ github.ref_name }}; then
-              echo "✅ Successfully triggered ArgoCD sync with new image tag"
-              break
-            else
-              echo "❌ Push attempt $i failed, retrying..."
-              sleep 5
-              git pull --rebase origin ${{ github.ref_name }} || true
-            fi
-          done
+          git push origin HEAD:main
 
 
 
-      - name: Force ArgoCD Sync
-        run: |
-          echo "🚀 Forcing ArgoCD sync for backstage application..."
-          ARGOCD_BIN=/tmp/argocd
-          echo "ArgoCD Server: $ARGOCD_SERVER"
-          if ! command -v $ARGOCD_BIN &> /dev/null; then
-            echo "Installing argocd CLI..."
-            curl -sSL -o $ARGOCD_BIN https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-            chmod +x $ARGOCD_BIN
-          fi
-          if [ -z "$ARGOCD_SERVER" ]; then
-            echo "ERROR: ARGOCD_SERVER is not set."
-            exit 1
-          fi
-          $ARGOCD_BIN login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" --insecure
-          $ARGOCD_BIN app sync backstage --server "$ARGOCD_SERVER"
-
-      - name: Check Kubernetes Deployment Image Tag
-        run: |
-          echo "🔎 Checking deployed image tag in Kubernetes..."
-          kubectl get deployment backstage -n backstage -o=jsonpath='{.spec.template.spec.containers[0].image}'
-          echo "Expected image: ${{ env.DOCKER_IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}"
-
-
-
-  # Summary and notifications
   deployment-summary:
     name: Deployment Summary
-    needs: [build-and-push, deploy-to-kind]
+    needs: [build-and-push, update-helm-chart]
     runs-on: ubuntu-latest
     if: always()
 
@@ -281,35 +163,12 @@ jobs:
           echo "🚀 CI/CD Pipeline Summary"
           echo "=========================================="
           echo ""
-          echo "📦 Image: ${{ env.DOCKER_IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}"
+          echo "📦 Image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}"
           echo "🔗 ArgoCD Application: backstage"
-          echo "🌐 Namespace: ${{ env.NAMESPACE }}"
           echo ""
           echo "✅ Build & Push: ${{ needs.build-and-push.result == 'success' && 'SUCCESS' || 'FAILED' }}"
-          echo "✅ ArgoCD Deploy: ${{ needs.deploy-to-kind.result == 'success' && 'SUCCESS' || 'FAILED' }}"
+          echo "✅ Chart Update: ${{ needs.update-helm-chart.result == 'success' && 'SUCCESS' || 'FAILED' }}"
           echo ""
           echo "🔄 ArgoCD should automatically sync the new image"
-          echo "📊 Check ArgoCD UI for deployment status"
           echo ""
           echo "=========================================="
-
-  # Cleanup old images
-  cleanup:
-    name: Cleanup old Docker images
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-
-    steps:
-      - name: Delete old images from GitHub Container Registry
-        continue-on-error: true
-        run: |
-          echo "🧹 Starting cleanup process..."
-
-          # Keep only last 10 images for the repository
-          IMAGES_TO_KEEP=10
-
-          # This is a placeholder - actual cleanup would require Docker Hub API or manual intervention
-          # For production, consider using Docker Hub API or a cleanup action
-          echo "ℹ️  Cleanup completed (manual cleanup recommended for Docker Hub)"
-          echo "💡 Consider implementing automated cleanup using Docker Hub API"
