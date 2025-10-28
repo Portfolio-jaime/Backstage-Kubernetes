@@ -1,0 +1,111 @@
+# name: CI/CD Pipeline - Backstage
+
+# on:
+#   push:
+#     branches: [ main ]
+#     paths:
+#       - 'backstage/**'
+#       - 'charts/**'
+#       - '.github/workflows/ci-cd.yaml'
+#   workflow_dispatch:
+
+# env:
+#   REGISTRY: docker.io
+#   IMAGE_NAME: jaimehenao8126/backstage-gitops
+
+# jobs:
+#   build-and-push:
+#     name: Build and Push Docker Image
+#     runs-on: ubuntu-latest
+#     outputs:
+#       image-tag: ${{ steps.set_tag.outputs.image-tag }}
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set Docker image tag
+#         id: set_tag
+#         run: |
+#           echo "image-tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '18'
+
+#       - name: Install dependencies
+#         run: cd backstage && yarn install --frozen-lockfile
+
+#       - name: Build Backstage
+#         run: cd backstage && yarn build:all
+
+#       - name: Login to DockerHub
+#         uses: docker/login-action@v3
+#         with:
+#           username: ${{ secrets.DOCKERHUB_USERNAME }}
+#           password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./backstage
+#           push: true
+#           tags: |
+#             ${{ env.IMAGE_NAME }}:${{ steps.set_tag.outputs.image-tag }}
+#             ${{ env.IMAGE_NAME }}:latest
+#           platforms: linux/amd64,linux/arm64
+
+#   update-helm-chart:
+#     name: Update Helm Chart and Deploy
+#     needs: build-and-push
+#     runs-on: ubuntu-latest
+#     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#         with:
+#           token: ${{ secrets.GITHUB_TOKEN }}
+
+#       - name: Configure Git
+#         run: |
+#           git config user.name "GitHub Actions"
+#           git config user.email "github-actions@github.com"
+
+#       - name: Update Helm chart image tag
+#         run: |
+#           IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
+#           echo "🔄 Updating Helm chart with image tag: $IMAGE_TAG"
+#           sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/" charts/backstage/values.yaml
+#           sed -i "s/repository: .*/repository: ${{ env.IMAGE_NAME }}/" charts/backstage/values.yaml
+#           echo "✅ Updated charts/backstage/values.yaml"
+
+#       - name: Commit and push changes
+#         run: |
+#           git add charts/backstage/values.yaml
+#           git commit -m "chore: Update Backstage image tag to ${{ needs.build-and-push.outputs.image-tag }}" || echo "No changes to commit"
+#           echo "🚀 Pushing changes to trigger ArgoCD sync..."
+#           git push origin HEAD:main
+
+#   deployment-summary:
+#     name: Deployment Summary
+#     needs: [build-and-push, update-helm-chart]
+#     runs-on: ubuntu-latest
+#     if: always()
+
+#     steps:
+#       - name: Deployment Status Summary
+#         run: |
+#           echo "=========================================="
+#           echo "🚀 CI/CD Pipeline Summary"
+#           echo "=========================================="
+#           echo ""
+#           echo "📦 Image: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}"
+#           echo "🔗 ArgoCD Application: backstage"
+#           echo ""
+#           echo "✅ Build & Push: ${{ needs.build-and-push.result == 'success' && 'SUCCESS' || 'FAILED' }}"
+#           echo "✅ Chart Update: ${{ needs.update-helm-chart.result == 'success' && 'SUCCESS' || 'FAILED' }}"
+#           echo ""
+#           echo "🔄 ArgoCD should automatically sync the new image"
+#           echo ""
+#           echo "=========================================="
