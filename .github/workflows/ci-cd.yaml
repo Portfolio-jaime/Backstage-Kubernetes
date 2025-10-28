@@ -4,12 +4,13 @@ on:
   push:
     branches:
       - main
-      - develop
     paths:
-      - 'backstage-kind/**'
+      - 'backstage/**'
       - 'helm/**'
       - 'argocd/**'
       - 'Makefile'
+      - 'charts/**'
+      - '.github/workflows/ci-cd.yaml'
 
 jobs:
   build-and-push:
